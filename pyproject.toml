@@ -1,0 +1,75 @@
+[project]
+name = "langtoolkit"
+version = "0.1.0"
+description = "Unified tool interface for SDK, OpenAPI, and MCP sources"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "langchain-core>=0.2,<0.4",
+    "pydantic>=2,<3",
+    "requests>=2.31",
+    "langchain-mcp-adapters>=0.1",
+    "aiohttp>=3.8",
+    "langchain-openai>=0.1",
+    "sentence-transformers>=2.2",
+    "numpy>=1.24",
+    "langgraph>=0.1",
+    "pytest>=8",
+]
+license = {file = "LICENSE"}
+authors = [
+  {name = "LangToolkit contributors"}
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+keywords = ["langchain", "tools", "openapi", "mcp", "sdk", "agent"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "mypy",
+    "ruff",
+    "black",
+    "types-requests",
+    "python-dotenv>=1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.coverage.run]
+omit = ["run_llm_tests.py", "test_tool.py"]
+source = ["langtoolkit"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["langtoolkit"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration (deselect with '-m \"not integration\"')",
+]
+addopts = "-m not integration"
