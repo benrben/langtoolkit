@@ -72,90 +72,161 @@ hub = build_tool_hub(sources, llm=None)
 print("Loaded", len(hub.all_tools()), "tools")
 ```
 
-### Custom SDK + MCP example (like `tests/test_integration_agent.py`)
+## Realistic examples
 
-This shows how a custom Python client becomes tools automatically, and how to query tool selection and layout.
+The patterns below show how to use LangToolkit with real SDKs, a familiar OpenAPI spec, and multiple MCP servers. They also demonstrate natural-language tool selection via `query_tools(...)`.
 
-Requirements:
-- Optional SearXNG running locally for web search: `http://localhost:8080`
-- Optional MCP server: `http://127.0.0.1:5555/mcp` (SSE transport)
+### 0) SDK example: Python math
 
 ```python
-import requests
-from typing import Any
-
 from langtoolkit import build_tool_hub
+from langgraph.prebuilt import create_react_agent
+from langchain_openai import ChatOpenAI
 
+hub = build_tool_hub(["math"], llm=None)
 
-class SearchCategory:
-    GENERAL = "general"
-
-
-class SearchResult(dict):
-    pass
-
-
-class SearXNGClient:
-    def __init__(self, host: str = "http://localhost:8080"):
-        self.host = host.rstrip("/")
-
-    def search(self, query: str, categories: list[str] | None = None):
-        """
-        Search for a query on the SearXNG web search engine
-        Returns: A list of search results
-        """
-        search_url = f"{self.host}/search"
-        params: dict[str, Any] = {"q": query, "format": "json"}
-        if categories:
-            params["categories"] = ",".join([f"{c}:" for c in categories])
-        resp = requests.get(search_url, params=params, timeout=5)
-        resp.raise_for_status()
-        data = resp.json()
-        return [SearchResult(r) for r in data.get("results", [])]
-
-
-# Build sources with a custom SDK object and an optional MCP server
-sdk_client = SearXNGClient()
-sources: list[Any] = [
-    sdk_client,
-    {"local_mcp": {"url": "http://127.0.0.1:5555/mcp", "transport": "sse"}},
-]
-
-hub = build_tool_hub(sources, llm=None)
-
-# Inspect the tool layout (names only)
-tool_names = sorted(t.name for t in hub.all_tools())
-print("Tools (sample):", tool_names[:10])
-
-# Query for the best-matching tools per task intent
-tasks = [
-    "search for the best restaurant in the world",
-    "what in the mind map?",
-]
-for task in tasks:
-    tools = hub.query_tools(task, k=2)
-    names = [t.name for t in tools]
-    print(f"Task: {task}\nSelected tools: {names}\n")
-
-    # Simple assertions (like the test):
-    if "mind map" in task.lower() or "mindmap" in task.lower():
-        mindmap_keywords = ("mindmap", "mind_map", "concept", "mcp_memory")
-        has_mindmap = any(any(kw in n.lower() for kw in mindmap_keywords) for n in names)
-        assert has_mindmap, "Expected a mind map tool for the mind map task"
-    else:
-        # Expect the SDK search tool from SearXNGClient to be present
-        assert any("SearXNGClient__search" in n for n in names), "Expected web search tool"
+task = "compute sine of 1 radian and cosine of 0"
+tools = hub.query_tools(task, k=3)
+agent = create_react_agent(ChatOpenAI(), tools, verbose=True)
+print(agent.invoke({"messages": [{"type": "human", "content": task}]}))
 ```
 
-If you want an agent, you can plug the hub into LangGraph (requires an LLM):
+### 1) SDK example: S3 (boto3) passed directly
+
+You can pass the S3 client object directly; its methods become tools.
+
+```python
+# pip install boto3
+import boto3
+from langtoolkit import build_tool_hub
+
+s3 = boto3.client("s3")
+hub = build_tool_hub([s3], llm=None)
+
+# Discover a couple of tool names
+print([t.name for t in hub.all_tools()][:8])
+
+# LLM-driven execution (agent selects and runs tools)
+from langgraph.prebuilt import create_react_agent
+from langchain_openai import ChatOpenAI
+
+task = "list my S3 buckets and upload 'hi' to my-bucket as hello.txt"
+selected = hub.query_tools(task, k=4)
+agent = create_react_agent(ChatOpenAI(), selected, verbose=True)
+result = agent.invoke({"messages": [{"type": "human", "content": task}]})
+print(result)
+```
+
+Run with an LLM (agent executes the selected tools):
 
 ```python
 from langgraph.prebuilt import create_react_agent
-# e.g., from langchain_openai import ChatOpenAI; llm = ChatOpenAI()
-llm = ...  # provide any LangChain-compatible LLM
-agent = create_react_agent(llm, hub.all_tools(), verbose=True)
-result = agent.invoke({"messages": [{"type": "human", "content": "find sine of 1"}]})
+from langchain_openai import ChatOpenAI
+
+# Select task-scoped tools based on intent
+task = "upload a short note to s3 bucket my-bucket"
+selected = hub.query_tools(task, k=2)
+
+# Let the LLM plan and call the tools
+llm = ChatOpenAI()  # requires OPENAI_API_KEY
+agent = create_react_agent(llm, selected, verbose=True)
+result = agent.invoke({"messages": [{"type": "human", "content": task}]})
+print(result)
 ```
+
+Notes:
+- Configure AWS credentials via environment or local profile for boto3.
+- Dynamic SDKs may have generic signatures; for stricter schemas, wrap selected methods in a small typed class.
+
+### 2) OpenAPI example: Swagger Petstore
+
+Use the public Petstore v3 example spec (`https://petstore3.swagger.io/api/v3/openapi.json`). Each OpenAPI operation becomes one tool.
+
+```python
+from langtoolkit import build_tool_hub
+from langgraph.prebuilt import create_react_agent
+from langchain_openai import ChatOpenAI
+
+sources = ["https://petstore3.swagger.io/api/v3/openapi.json"]
+hub = build_tool_hub(sources, llm=None)
+
+task = "create a new pet named Fluffy, then fetch it by id"
+tools = hub.query_tools(task, k=3)
+agent = create_react_agent(ChatOpenAI(), tools, verbose=True)
+result = agent.invoke({"messages": [{"type": "human", "content": task}]})
+print(result)
+```
+
+### 3) Multiple MCP servers
+
+Connect to more than one MCP server; LangToolkit will fetch and wrap their tools with event-loop–safe sync adapters.
+
+```python
+from langtoolkit import build_tool_hub
+from langgraph.prebuilt import create_react_agent
+from langchain_openai import ChatOpenAI
+
+mcp_connections = {
+    "notes": {"url": "http://127.0.0.1:5555/mcp", "transport": "sse"},
+    # "fs": {"command": "node", "args": ["path/to/fs-server.mjs"], "transport": "stdio"},
+}
+hub = build_tool_hub([mcp_connections], llm=None)
+
+task = "in the mind map, add a node 'Vector Store' linked to 'Embeddings'"
+tools = hub.query_tools(task, k=2)
+agent = create_react_agent(ChatOpenAI(), tools, verbose=True)
+print(agent.invoke({"messages": [{"type": "human", "content": task}]}))
+```
+
+### 4) Mixed hub: S3 wrapper + Petstore + two MCPs
+
+```python
+from typing import Any
+import boto3
+from langtoolkit import build_tool_hub
+from langgraph.prebuilt import create_react_agent
+from langchain_openai import ChatOpenAI
+
+
+class S3Tools:
+    def __init__(self, client: Any | None = None) -> None:
+        self.s3 = client or boto3.client("s3")
+
+    def list_buckets(self) -> list[str]:
+        resp = self.s3.list_buckets()
+        return [b["Name"] for b in resp.get("Buckets", [])]
+
+    def put_text(self, bucket: str, key: str, text: str) -> dict:
+        self.s3.put_object(Bucket=bucket, Key=key, Body=text.encode("utf-8"))
+        return {"bucket": bucket, "key": key, "bytes": len(text)}
+
+
+sources = [
+    S3Tools(),
+    "https://petstore3.swagger.io/api/v3/openapi.json",
+    {
+        "notes": {"url": "http://127.0.0.1:5555/mcp", "transport": "sse"},
+        "knowledge": {"url": "http://127.0.0.1:6666/mcp", "transport": "sse"},
+    },
+]
+hub = build_tool_hub(sources, llm=None)
+
+llm = ChatOpenAI()
+for task in [
+    "list my s3 buckets",
+    "upload 'build ok' to s3 bucket my-bucket as build.txt",
+    "create a pet named Spike",
+    "in the mind map, show concepts related to 'agents'",
+]:
+    tools = hub.query_tools(task, k=3)
+    agent = create_react_agent(llm, tools, verbose=True)
+    result = agent.invoke({"messages": [{"type": "human", "content": task}]})
+    print(task, "->", result)
+```
+
+Tips:
+- `query_tools` uses embeddings (OpenAI if `OPENAI_API_KEY` is set; otherwise local) plus keyword boosting.
+- Tool names encode provenance (e.g., `sdk`, `openapi`, `mcp`) so you can attribute the choice or log it.
 
 ## API Surface
 
