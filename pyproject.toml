@@ -67,6 +67,7 @@ exclude_lines = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["langtoolkit"]
+include = ["langtoolkit/py.typed"]
 
 [tool.pytest.ini_options]
 markers = [
