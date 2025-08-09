@@ -6,7 +6,7 @@ from typing import Any
 
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, create_model
 
 from .tool import LoadedTool
 
@@ -196,6 +196,44 @@ class MCPLoader:
                     prefix = _re.sub(r"[^a-zA-Z0-9_-]", "_", server_name).strip("_") or "mcp"
                 for t in tools:
                     desc = getattr(t, "description", "MCP tool") or "MCP tool"
+                    # Derive a concrete args schema from the inner tool schema when available
+                    args_model: type[BaseModel] = _PassthroughArgs
+                    try:
+                        schema = getattr(t, "tool_call_schema", None)
+                        if isinstance(schema, dict):
+                            props = schema.get("properties") or {}
+                            required_list = schema.get("required") or []
+                            if isinstance(props, dict):
+                                fields: dict[str, tuple[type[Any], Any]] = {}
+                                def _py_type(js_type: str | None) -> type[Any]:
+                                    if js_type == "string":
+                                        return str
+                                    if js_type == "integer":
+                                        return int
+                                    if js_type == "number":
+                                        return float
+                                    if js_type == "boolean":
+                                        return bool
+                                    if js_type == "array":
+                                        return list
+                                    if js_type == "object":
+                                        return dict
+                                    return Any
+
+                                for name, spec in props.items():
+                                    if not isinstance(name, str) or not isinstance(spec, dict):
+                                        continue
+                                    tpe = _py_type(spec.get("type"))
+                                    default = ... if name in required_list else None
+                                    fields[name] = (tpe, default)
+                                if fields:
+                                    model_name = f"MCP_{prefix}_{getattr(t, 'name', 'tool')}_Args"
+                                    # Sanitize model name for Pydantic
+                                    model_name = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in model_name)
+                                    args_model = create_model(model_name, **fields)  # type: ignore[arg-type]
+                    except Exception:
+                        # Fallback to passthrough schema on any failure
+                        args_model = _PassthroughArgs
                     # Always wrap to guarantee sync invocation, regardless of inner implementation
                     # Prefix the tool name for clearer attribution and easier selection heuristics
                     base_name = t.name or "tool"
@@ -204,7 +242,7 @@ class MCPLoader:
                         name=prefixed_name,
                         description=desc,
                         inner=t,
-                        args_schema=_PassthroughArgs,
+                        args_schema=args_model,
                     )
                     loaded.append(
                         LoadedTool(

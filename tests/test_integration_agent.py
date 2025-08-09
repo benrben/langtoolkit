@@ -154,6 +154,5 @@ def test_integration_agent_with_sdk_and_two_mcps():
             {"messages": [HumanMessage(content=msg_content)]},
             config={"recursion_limit": 8},
         )
-        for r in result:
-            print(r)
+        print(result)
             
