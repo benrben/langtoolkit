@@ -23,6 +23,7 @@ dependencies = [
     "black",
     "types-requests",
     "python-dotenv>=1",
+    "yfinance>=0.2",
 ]
 license = {file = "LICENSE"}
 authors = [

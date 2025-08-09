@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
+import yfinance as yf
 
 # Ensure package is importable when running tests directly
 ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -55,6 +56,25 @@ class SearXNGClient:
         data = resp.json()
         return [SearchResult(r) for r in data.get("results", [])]
 
+@pytest.mark.integration
+def test_integration_agent_with_yfinance_mcp():
+    load_dotenv()
+    sorcue = [yf.Ticker,yf.Tickers,yf.Search]
+    llm = ChatOpenAI(model="gpt-5-mini-2025-08-07")
+    hub = build_tool_hub(sources=sorcue, llm=llm)
+    print([t.name for t in hub.all_tools()])
+    query = "what is the price of apple stock"
+    tools = hub.query_tools(query, k=2)
+    assert tools, "Unified hub returned no tools"
+    tool_names = [t.name for t in tools]
+    print("Selected tools:", tool_names)
+    assert any(tool_name.startswith("yfinance") for tool_name in tool_names), "Expected yfinance tool not found"
+    agent = create_react_agent(llm, tools)
+    result = agent.invoke(
+        {"messages": [HumanMessage(content=query)]}, config={"recursion_limit": 8}
+    )
+    print(result)
+    
 
 @pytest.mark.integration
 def test_integration_agent_with_sdk_openapi_mcp():
@@ -134,7 +154,7 @@ def test_integration_agent_with_sdk_and_two_mcps():
 
     tasks = [
         {"query": "search latest btc price and exchanges", "expected_tools": "ccxt"},
-        {"query": "who is the best football player in the world?", "expected_tools": "SearXNGClient__search"},
+        {"query": "who is the best football player in the world search in the internet?", "expected_tools": "SearXNGClient__search"},
         
     ]
 
@@ -156,3 +176,4 @@ def test_integration_agent_with_sdk_and_two_mcps():
         )
         print(result)
             
+# test_integration_agent_with_yfinance_mcp()
