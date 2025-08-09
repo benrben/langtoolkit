@@ -11,10 +11,18 @@ dependencies = [
     "langchain-mcp-adapters>=0.1",
     "aiohttp>=3.8",
     "langchain-openai>=0.1",
+    "langchain-community>=0.2",
     "sentence-transformers>=2.2",
     "numpy>=1.24",
     "langgraph>=0.1",
     "pytest>=8",
+    "pytest-asyncio",
+    "pytest-cov",
+    "mypy",
+    "ruff",
+    "black",
+    "types-requests",
+    "python-dotenv>=1",
 ]
 license = {file = "LICENSE"}
 authors = [
@@ -36,17 +44,7 @@ Homepage = "https://github.com/langchain-ai/langtoolkit"
 Repository = "https://github.com/langchain-ai/langtoolkit"
 Documentation = "https://python.langchain.com/docs/langtoolkit"
 
-[project.optional-dependencies]
-dev = [
-    "pytest",
-    "pytest-asyncio",
-    "pytest-cov",
-    "mypy",
-    "ruff",
-    "black",
-    "types-requests",
-    "python-dotenv>=1",
-]
+## All dependencies are required; no optional extras
 
 [build-system]
 requires = ["hatchling"]
@@ -78,4 +76,4 @@ include = ["langtoolkit/py.typed"]
 markers = [
     "integration: marks tests as integration (deselect with '-m \"not integration\"')",
 ]
-addopts = "-m not integration"
+addopts = "-q"

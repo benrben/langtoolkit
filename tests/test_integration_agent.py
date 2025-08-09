@@ -1,5 +1,6 @@
 import os
 import sys
+import importlib
 from typing import Any
 
 import pytest
@@ -11,9 +12,13 @@ from langgraph.prebuilt import create_react_agent
 
 # Ensure package is importable when running tests directly
 ROOT = os.path.dirname(os.path.dirname(__file__))
-PKG = os.path.join(ROOT, "langtoolkit")
-if PKG not in sys.path:
-    sys.path.insert(0, PKG)
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+# Ensure we import the local workspace version of `langtoolkit`, not any installed dist
+for _m in list(sys.modules.keys()):
+    if _m == "langtoolkit" or _m.startswith("langtoolkit."):
+        del sys.modules[_m]
 
 from langtoolkit.builder import build_tool_hub
 
@@ -88,9 +93,67 @@ def test_integration_agent_with_sdk_openapi_mcp():
                 has_search
             ), "Expected web search tool (SearXNGClient__search) for search task"
 
-        agent = create_react_agent(llm, tools, verbose=True, strict=False)
+        agent = create_react_agent(llm, tools)
         result = agent.invoke(
             {"messages": [HumanMessage(content=task)]}, config={"recursion_limit": 8}
         )
         assert isinstance(result, dict)
         print(result)
+
+
+@pytest.mark.integration
+def test_integration_agent_with_sdk_and_two_mcps():
+    """Integration test: SDK + two MCP servers (stdio and SSE).
+
+    Skipped by default unless integration tests are enabled. Expects:
+      - `mcp-server-ccxt` available on PATH, speaking MCP over stdio
+      - A mind map MCP available at http://localhost:5555/mcp (SSE)
+      - Optional SearXNG running at http://localhost:8080 for the SDK example
+    """
+    load_dotenv()
+
+    _MCP_CONNECTIONS = {
+        "crypto-search-tools": {
+            "command": "mcp-server-ccxt",
+            # Note: stdio transport; host/port are server args, not a web port for our app
+            "args": ["--host", "127.0.0.1", "--port", "5000"],
+            "transport": "stdio",
+        },
+        "MindMap-Memory": {
+            "url": "http://localhost:5555/mcp",
+            "transport": "sse",
+        },
+    }
+
+    # SDK source (simple web search client)
+    sdk_client = SearXNGClient()
+    sources: list[Any] = [sdk_client, _MCP_CONNECTIONS]
+
+    # Use any LangChain-compatible LLM; model name can be provided via env if desired
+    llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-5-mini-2025-08-07"))
+
+    tasks = [
+        {"query": "search latest btc price and exchanges", "expected_tools": "ccxt"},
+        {"query": "who is the best football player in the world?", "expected_tools": "SearXNGClient__search"},
+        
+    ]
+
+    hub = build_tool_hub(sources, llm=llm)
+    for task in tasks:
+        tools = hub.query_tools(task, k=3)
+        assert tools, "Unified hub returned no tools"
+        tool_names = [t.name for t in tools]
+        print("Selected tools:", tool_names)
+        assert any(tool_name.startswith(task["expected_tools"]) for tool_name in tool_names), f"Expected tool {task['expected_tools']} not found"
+        
+        # Build a small agent over the selected tools and run the task
+        agent = create_react_agent(llm, tools)
+        # Ensure the human message content is a string for the LLM
+        msg_content = task["query"] if isinstance(task, dict) else str(task)
+        result = agent.invoke(
+            {"messages": [HumanMessage(content=msg_content)]},
+            config={"recursion_limit": 8},
+        )
+        for r in result:
+            print(r)
+            

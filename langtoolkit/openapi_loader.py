@@ -116,7 +116,7 @@ class OpenAPILoader:
                 parsed = _urlparse.urlparse(self._spec_url)
                 if parsed.scheme and parsed.netloc:
                     base_url = f"{parsed.scheme}://{parsed.netloc}"
-            except Exception:
+            except Exception:  # pragma: no cover - defensive guard for malformed URLs
                 base_url = ""
         paths = spec.get("paths", {})
         loaded: list[LoadedTool] = []

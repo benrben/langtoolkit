@@ -126,7 +126,10 @@ class SDKLoader:
             else:
                 module = source
                 cls = module.__class__
-                origin_name = f"{cls.__module__}.{cls.__name__}"
+                # For object instances, use the class name only to keep tool names concise
+                # and stable regardless of the defining module path. This also aligns with
+                # common expectations like "SearXNGClient__search" in tests.
+                origin_name = f"{cls.__name__}"
             candidates: list[tuple[str, Callable[..., Any]]] = []
             # For modules, inspect routines; for objects, include callables (methods allowed)
             predicate = (

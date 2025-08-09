@@ -168,12 +168,65 @@ from langchain_openai import ChatOpenAI
 
 mcp_connections = {
     "notes": {"url": "http://127.0.0.1:5555/mcp", "transport": "sse"},
-    # "fs": {"command": "node", "args": ["path/to/fs-server.mjs"], "transport": "stdio"},
+    # stdio example (Node): the process should speak MCP over stdio
+    # "fs": {
+    #   "command": "node",
+    #   "args": ["/absolute/path/to/fs-server.mjs"],
+    #   "transport": "stdio"
+    # },
 }
 hub = build_tool_hub([mcp_connections], llm=None)
 
 task = "in the mind map, add a node 'Vector Store' linked to 'Embeddings'"
 tools = hub.query_tools(task, k=2)
+agent = create_react_agent(ChatOpenAI(), tools, verbose=True)
+print(agent.invoke({"messages": [{"type": "human", "content": task}]}))
+```
+
+#### MCP over stdio (explicit, runnable pattern)
+
+If your MCP server is a local process that communicates over stdio, configure it with `command`/`args` and `transport: "stdio"`.
+
+Node example:
+
+```python
+from langtoolkit import build_tool_hub
+from langgraph.prebuilt import create_react_agent
+from langchain_openai import ChatOpenAI
+
+mcp_stdio = {
+    "fs": {
+        "command": "node",
+        "args": ["/absolute/path/to/fs-server.mjs"],
+        "transport": "stdio",
+    }
+}
+
+hub = build_tool_hub([mcp_stdio], llm=None)
+task = "list files under /tmp and read /tmp/hello.txt"
+tools = hub.query_tools(task, k=3)
+agent = create_react_agent(ChatOpenAI(), tools, verbose=True)
+print(agent.invoke({"messages": [{"type": "human", "content": task}]}))
+```
+
+Python example:
+
+```python
+from langtoolkit import build_tool_hub
+from langgraph.prebuilt import create_react_agent
+from langchain_openai import ChatOpenAI
+
+mcp_stdio = {
+    "py_notes": {
+        "command": "python",
+        "args": ["/absolute/path/to/notes_mcp_server.py"],
+        "transport": "stdio",
+    }
+}
+
+hub = build_tool_hub([mcp_stdio], llm=None)
+task = "create a note 'MCP stdio works' and then fetch it"
+tools = hub.query_tools(task, k=3)
 agent = create_react_agent(ChatOpenAI(), tools, verbose=True)
 print(agent.invoke({"messages": [{"type": "human", "content": task}]}))
 ```
